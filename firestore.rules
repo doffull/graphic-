@@ -1,0 +1,115 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId}
+    // Fields:
+    //   - uid: string (required, immutable) - The user's unique ID
+    //   - email: string (required) - The user's email address
+    //   - displayName: string (optional) - The user's display name
+    //   - photoURL: string (optional) - The user's profile photo URL
+    //   - createdAt: timestamp (required, immutable) - When the user was created
+    //
+    // Collection: generations
+    // Document ID: {generationId}
+    // Fields:
+    //   - userId: string (required, immutable) - The ID of the user who generated this
+    //   - prompt: string (required) - The prompt used for generation
+    //   - theme: string (required) - The theme used
+    //   - visualStyle: string (required) - The visual style used
+    //   - colorPalette: string (optional) - The color palette used
+    //   - fineness: number (optional) - The fineness level
+    //   - density: number (optional) - The density level
+    //   - aspectRatio: string (optional) - The aspect ratio
+    //   - imageThumb: string (optional) - Base64 encoded thumbnail image
+    //   - imageFull: string (optional) - Base64 encoded full image
+    //   - createdAt: timestamp (required, immutable) - When the generation was created
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.userId;
+    }
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    function userIdUnchanged() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == request.auth.uid;
+    }
+    function userIdNotModified() {
+      return !('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId;
+    }
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasRequiredFields(['uid', 'email', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             data.createdAt is timestamp &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && isValidUrl(data.photoURL)));
+    }
+
+    function isValidGeneration(data) {
+      return hasRequiredFields(['userId', 'prompt', 'theme', 'visualStyle', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 100 &&
+             data.prompt is string && data.prompt.size() < 5000 &&
+             data.theme is string && data.theme.size() < 1000 &&
+             data.visualStyle is string && data.visualStyle.size() < 100 &&
+             data.createdAt is timestamp &&
+             (!('colorPalette' in data) || (data.colorPalette is string && data.colorPalette.size() < 100)) &&
+             (!('fineness' in data) || (data.fineness is number && data.fineness >= 0 && data.fineness <= 100)) &&
+             (!('density' in data) || (data.density is number && data.density >= 0 && data.density <= 100)) &&
+             (!('aspectRatio' in data) || (data.aspectRatio is string && data.aspectRatio.size() < 20)) &&
+             (!('imageThumb' in data) || (data.imageThumb is string && data.imageThumb.size() < 1048576)) &&
+             (!('imageFull' in data) || (data.imageFull is string && data.imageFull.size() < 1048576));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data) && uidUnchanged();
+      allow update: if isOwner(userId) && isValidUser(request.resource.data) && uidNotModified() && areImmutableFieldsUnchanged(['createdAt']);
+      allow delete: if isOwner(userId);
+    }
+
+    match /generations/{generationId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidGeneration(request.resource.data) && userIdUnchanged();
+      allow update: if isDocOwner() && isValidGeneration(request.resource.data) && userIdNotModified() && areImmutableFieldsUnchanged(['createdAt']);
+      allow delete: if isDocOwner();
+    }
+  }
+}

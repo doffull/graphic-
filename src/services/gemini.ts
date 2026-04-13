@@ -168,7 +168,7 @@ export async function generateMicroGraphix(params: GenerationParams, onProgress?
 
   const themeDesc = params.theme === 'custom' ? params.customPrompt : (themeDescriptions[params.theme] || params.theme);
   let prompt = `Create a micro-engraving visual. Theme: ${themeDesc}. `;
-  if (params.text) prompt += `Incorporate the text or letter "${params.text}" as the central structure. `;
+  if (params.text) prompt += `Incorporate the text, word, or phrase "${params.text}" as the central structure. The typography should be formed entirely by the micro-engravings and clearly legible. `;
   if (params.customPrompt && params.theme !== 'custom') prompt += `Details to include: ${params.customPrompt}. `;
   prompt += `Technical specs: Line fineness level ${params.fineness}/100, Detail density level ${params.density}/100. `;
   prompt += selectedStyle;
@@ -248,6 +248,9 @@ export async function generateMicroGraphix(params: GenerationParams, onProgress?
       if (error.message?.includes("INVALID_ARGUMENT")) {
         throw new Error("Argument invalide : l'image fournie ou les paramètres sont incorrects. Vérifiez votre logo ou vos réglages.");
       }
+      if (error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("spending cap") || error.message?.includes("429")) {
+        throw new Error("Quota d'utilisation dépassé (Erreur 429). Votre projet a dépassé son plafond de dépenses mensuel. Veuillez vous rendre sur https://ai.studio/spend pour gérer votre plafond de dépenses, ou sélectionnez une autre clé API.");
+      }
       throw error;
     }
   };
@@ -308,6 +311,9 @@ export async function modifyWithAI(currentImage: string, instruction: string) {
     throw new Error("Modification failed: No image returned");
   } catch (error: any) {
     console.error("Gemini API Error (Modify):", error);
+    if (error.message?.includes("RESOURCE_EXHAUSTED") || error.message?.includes("spending cap") || error.message?.includes("429")) {
+      throw new Error("Quota d'utilisation dépassé (Erreur 429). Votre projet a dépassé son plafond de dépenses mensuel. Veuillez vous rendre sur https://ai.studio/spend pour gérer votre plafond de dépenses, ou sélectionnez une autre clé API.");
+    }
     throw error;
   }
 }
